@@ -5,12 +5,16 @@ spring:
     basename: i18n/messages
     encoding: UTF-8
   datasource:
-      jdbc-url: jdbc:oracle:thin:@localhost:1521/orclpdb
-      username: hr
-      password: hr
-      driver-class-name: oracle.jdbc.OracleDriver
-      pool-name: TwoMasterDBPool
-      auto-commit: false
-      connection-timeout: 10000
-      connection-test-query: SELECT 1 FROM dual
-      max-lifetime: 120000
+    url: jdbc:oracle:thin:@localhost:1521/orclpdb
+    username: hr
+    password: hr1
+    type: com.zaxxer.hikari.HikariDataSource
+    driver-class-name: oracle.jdbc.OracleDriver
+    pool-name: SpringBatchDBPool
+    auto-commit: false
+    connection-timeout: 10000
+    connection-test-query: SELECT 1 FROM dual
+    max-lifetime: 120000
+  batch:
+    jdbc:
+      initialize-schema: never #In the first time it will be 'always', but once tables created it must be defined as 'never'
