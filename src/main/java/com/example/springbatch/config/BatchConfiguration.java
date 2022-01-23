@@ -5,7 +5,9 @@ import com.example.springbatch.listener.HelloStepExecutionListener;
 import com.example.springbatch.model.Product;
 import com.example.springbatch.processor.InMemoryItemProcessor;
 import com.example.springbatch.reader.InMemoryItemReader;
+import com.example.springbatch.service.adapter.ProductServiceAdapter;
 import com.example.springbatch.writer.InMemoryItemWriter;
+import com.thoughtworks.xstream.XStream;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.StepContribution;
@@ -16,18 +18,31 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.item.adapter.ItemReaderAdapter;
+import org.springframework.batch.item.database.JdbcCursorItemReader;
 import org.springframework.batch.item.file.FlatFileItemReader;
+import org.springframework.batch.item.file.FlatFileItemWriter;
 import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
 import org.springframework.batch.item.file.mapping.DefaultLineMapper;
+import org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor;
+import org.springframework.batch.item.file.transform.DelimitedLineAggregator;
 import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
+import org.springframework.batch.item.json.JacksonJsonObjectReader;
+import org.springframework.batch.item.json.JsonItemReader;
 import org.springframework.batch.item.xml.StaxEventItemReader;
+import org.springframework.batch.item.xml.StaxEventItemWriter;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Scope;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.oxm.jaxb.Jaxb2Marshaller;
+import org.springframework.oxm.xstream.XStreamMarshaller;
+
+import javax.sql.DataSource;
+import java.util.HashMap;
 
 @Configuration
 @EnableBatchProcessing
@@ -53,6 +68,12 @@ public class BatchConfiguration {
 
     @Autowired
     private InMemoryItemWriter inMemoryItemWriter;
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private ProductServiceAdapter productServiceAdapter;
 
     // lets create a step. Step does a certain work and jobs will use steps
     @Bean
@@ -95,6 +116,10 @@ public class BatchConfiguration {
                 .build();
     }
 
+    /**
+     * Reading and writing flat files
+     */
+
     // lets configure a reader for csv file
     // you have to add this to step writer to make it work
     @Bean
@@ -125,7 +150,30 @@ public class BatchConfiguration {
         return reader;
     }
 
-    // lets configure a reader for reading xml file
+    @Bean
+    public FlatFileItemWriter flatFileItemWriter(
+            @Value("#{jobParameters[fileOutput]}") FileSystemResource outputFile
+    ) {
+        FlatFileItemWriter writer = new FlatFileItemWriter();
+        writer.setResource(outputFile);
+        writer.setLineAggregator(new DelimitedLineAggregator(){
+            {
+                setDelimiter("|");
+                setFieldExtractor(new BeanWrapperFieldExtractor(){
+                    {
+                        setNames(new String[]{"productID", "productName", "ProductDesc", "price", "unit"});
+                    }
+                });
+            }
+        });
+
+        return writer;
+    }
+
+    /**
+     * Reading and writing xml files
+     */
+
     @Bean
     @StepScope
     public StaxEventItemReader xmlItemReader() {
@@ -141,6 +189,60 @@ public class BatchConfiguration {
                 setClassesToBeBound(Product.class);
             }
         });
+
+        return reader;
+    }
+
+    @Bean
+    @StepScope
+    public StaxEventItemWriter xmlItemWriter(
+            @Value("#{jobParameters[fileOutput]}") FileSystemResource outputFile
+    ) {
+        XStreamMarshaller marshaller = new XStreamMarshaller();
+
+        HashMap<String, Class> aliases = new HashMap<>();
+        aliases.put("product", Product.class);
+        marshaller.setAliases(aliases);
+        marshaller.setAutodetectAnnotations(true);
+
+        StaxEventItemWriter writer = new StaxEventItemWriter();
+        writer.setResource(outputFile);
+        writer.setMarshaller(marshaller);
+        writer.setRootTagName("Products");
+
+        return writer;
+    }
+
+    // lets configure a reader for reading from DB
+    @Bean
+    public JdbcCursorItemReader jdbcCursorItemReader() {
+        JdbcCursorItemReader reader = new JdbcCursorItemReader();
+        reader.setDataSource(dataSource);
+        reader.setSql("select product_id, prod_name, prod_desc, unit, price from products");
+        reader.setRowMapper(new BeanPropertyRowMapper(Product.class) {
+            {
+                setMappedClass(Product.class);
+            }
+        });
+
+        return reader;
+    }
+
+    // lets configure a reader for reading json file
+    @Bean
+    @StepScope
+    public JsonItemReader jsonItemReader(@Value("#{jobParameters['fileInput']}")
+                                                 FileSystemResource inputFile) {
+        var reader = new JsonItemReader(inputFile, new JacksonJsonObjectReader(Product.class));
+        return reader;
+    }
+
+    // lets configure a reader for reading from rest web service
+    @Bean
+    public ItemReaderAdapter serviceItemReader() {
+        ItemReaderAdapter reader = new ItemReaderAdapter();
+        reader.setTargetObject(productServiceAdapter);
+        reader.setTargetMethod("nextProduct");
 
         return reader;
     }
