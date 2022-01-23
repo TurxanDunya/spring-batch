@@ -1,0 +1,16 @@
+[
+  {
+    "productId": 1,
+    "productName": "Apple",
+    "productDesc": "Apple Cell",
+    "unit": 10,
+    "price": 300.23
+  },
+  {
+    "productId": 2,
+    "productName": "Samsung",
+    "productDesc": "Samsung Cell",
+    "unit": 20,
+    "price": 562.78
+  }
+]
