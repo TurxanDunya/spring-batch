@@ -2,6 +2,7 @@ package com.example.springbatch.config;
 
 import com.example.springbatch.listener.HelloJobExecutionListener;
 import com.example.springbatch.listener.HelloStepExecutionListener;
+import com.example.springbatch.listener.ProductSkipListener;
 import com.example.springbatch.model.Product;
 import com.example.springbatch.processor.InMemoryItemProcessor;
 import com.example.springbatch.reader.InMemoryItemReader;
@@ -17,11 +18,13 @@ import org.springframework.batch.core.configuration.annotation.StepBuilderFactor
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.skip.AlwaysSkipItemSkipPolicy;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.adapter.ItemReaderAdapter;
 import org.springframework.batch.item.database.JdbcCursorItemReader;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.FlatFileItemWriter;
+import org.springframework.batch.item.file.FlatFileParseException;
 import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
 import org.springframework.batch.item.file.mapping.DefaultLineMapper;
 import org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor;
@@ -84,16 +87,6 @@ public class BatchConfiguration {
                 .build();
     }
 
-    @Bean
-    public Step step2() {
-        return steps.get("step2")
-                .<Integer, Integer>chunk(3)
-                .reader(inMemoryItemReader)
-                .processor(inMemoryItemProcessor)
-                .writer(inMemoryItemWriter)
-                .build();
-    }
-
     // it is task-based step, not chunk-based
     private Tasklet helloBatchTasklet() {
         return new Tasklet() {
@@ -105,6 +98,31 @@ public class BatchConfiguration {
         };
     }
 
+    @Bean
+    public Step step2() {
+        return steps.get("step2")
+                .<Integer, Integer>chunk(3)
+                .reader(inMemoryItemReader)
+                .processor(inMemoryItemProcessor)
+                .writer(inMemoryItemWriter)
+                .build();
+    }
+
+    @Bean
+    public Step step3() {
+        return steps.get("step3")
+                .<Integer, Integer>chunk(3)
+                .reader(flatFileItemReader())
+                .processor(inMemoryItemProcessor)
+                .writer(flatFileItemWriter(null))
+                .faultTolerant()
+                .skip(FlatFileParseException.class) //skip this exception
+                .skipLimit(3) //batch will skip only 3 incorrect record
+                .skipPolicy(new AlwaysSkipItemSkipPolicy()) //will skip all exceptions
+                .listener(new ProductSkipListener()) //skipped records will be written to file
+                .build();
+    }
+
     // lets create a job
     @Bean
     public Job helloBatchJob() {
@@ -113,6 +131,7 @@ public class BatchConfiguration {
                 .listener(helloJobExecutionListener)
                 .start(step1())
                 .next(step2())
+                .next(step3())
                 .build();
     }
 
@@ -155,7 +174,7 @@ public class BatchConfiguration {
             @Value("#{jobParameters[fileOutput]}") FileSystemResource outputFile
     ) {
         FlatFileItemWriter writer = new FlatFileItemWriter();
-        writer.setResource(outputFile);
+            writer.setResource(outputFile);
         writer.setLineAggregator(new DelimitedLineAggregator(){
             {
                 setDelimiter("|");
